@@ -1,0 +1,70 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "User profile with contact info and registration timestamp",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Equal to the Auth User UID" },
+        "name": { "type": "string", "description": "Full name of the client" },
+        "email": { "type": "string", "description": "Email address of the client" },
+        "phone": { "type": "string", "description": "Contact phone number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "name", "email", "createdAt", "updatedAt"]
+    },
+    "Appointment": {
+      "title": "Appointment Booking",
+      "description": "Outpatient clinic doctor reservation booking detail",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique consultation code" },
+        "userId": { "type": "string", "description": "Auth UID of the client who booked" },
+        "doctorId": { "type": "string", "description": "Consulting doctor ID" },
+        "doctorName": { "type": "string", "description": "Doctor full name" },
+        "departmentId": { "type": "string", "description": "Assigned hospital department ID" },
+        "departmentName": { "type": "string", "description": "Hospital department name" },
+        "patientName": { "type": "string", "description": "Patient legal declaration name" },
+        "patientEmail": { "type": "string", "description": "Patient communication email" },
+        "patientPhone": { "type": "string", "description": "Patient cellular phone" },
+        "date": { "type": "string", "format": "date" },
+        "timeSlot": { "type": "string", "description": "Reserved hour slot" },
+        "symptoms": { "type": "string", "description": "Brief health symptoms declaration" },
+        "status": { "type": "string", "enum": ["Scheduled", "Completed", "Cancelled"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "doctorId", "doctorName", "departmentId", "departmentName", "patientName", "patientEmail", "patientPhone", "date", "timeSlot", "status", "createdAt", "updatedAt"]
+    },
+    "Looking": {
+      "title": "Bookmark Interest",
+      "description": "Stored doctor bookmark and looking preferences",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique looking ID" },
+        "userId": { "type": "string", "description": "Auth UID of the client" },
+        "doctorId": { "type": "string", "description": "Doctor ID of interest" },
+        "doctorName": { "type": "string", "description": "Doctor's full name" },
+        "doctorRole": { "type": "string", "description": "Doctor's role and title" },
+        "doctorImage": { "type": "string", "description": "Doctor's profile picture URL" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "doctorId", "doctorName", "doctorRole", "doctorImage", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "User profile isolation documents"
+    },
+    "/users/{userId}/appointments/{appointmentId}": {
+      "schema": { "$ref": "#/entities/Appointment" },
+      "description": "Subcollection of clinic appointments scheduled by the user"
+    },
+    "/users/{userId}/lookings/{lookingId}": {
+      "schema": { "$ref": "#/entities/Looking" },
+      "description": "Subcollection of favorited doctor lookings stored by the user"
+    }
+  }
+}

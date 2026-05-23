@@ -1,0 +1,172 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // 1. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+    
+    // Helper Primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.email == 'jayeshpandit2505@gmail.com';
+    }
+    
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+    
+    function incoming() {
+      return request.resource.data;
+    }
+    
+    function existing() {
+      return resource.data;
+    }
+    
+    // User Profile Validation
+    function isValidUser(data) {
+      return data.keys().hasAll(['userId', 'name', 'email', 'phone', 'createdAt', 'updatedAt'])
+        && data.keys().size() == 6
+        && data.userId is string && data.userId.size() <= 128
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 100
+        && data.email is string && data.email.size() <= 150
+        && data.phone is string && data.phone.size() <= 30
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+    
+    // Appointment Validation
+    function isValidAppointment(data) {
+      return data.keys().hasAll([
+        'id', 'userId', 'doctorId', 'doctorName', 'departmentId', 'departmentName',
+        'patientName', 'patientEmail', 'patientPhone', 'date', 'timeSlot', 'symptoms',
+        'status', 'createdAt', 'updatedAt'
+      ])
+        && data.keys().size() == 15
+        && data.id is string && data.id.size() <= 128
+        && data.userId is string && data.userId.size() <= 128
+        && data.doctorId is string && data.doctorId.size() <= 64
+        && data.doctorName is string && data.doctorName.size() <= 100
+        && data.departmentId is string && data.departmentId.size() <= 64
+        && data.departmentName is string && data.departmentName.size() <= 100
+        && data.patientName is string && data.patientName.size() > 0 && data.patientName.size() <= 100
+        && data.patientEmail is string && data.patientEmail.size() <= 150
+        && data.patientPhone is string && data.patientPhone.size() <= 30
+        && data.date is string && data.date.size() == 10 // YYYY-MM-DD
+        && data.timeSlot is string && data.timeSlot.size() <= 30
+        && data.symptoms is string && data.symptoms.size() <= 2000
+        && data.status is string && (data.status == 'Scheduled' || data.status == 'Completed' || data.status == 'Cancelled')
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+    
+    // Looking (Doctor Wishlist Bookmark) Validation
+    function isValidLooking(data) {
+      return data.keys().hasAll(['id', 'userId', 'doctorId', 'doctorName', 'doctorRole', 'doctorImage', 'createdAt'])
+        && data.keys().size() == 7
+        && data.id is string && data.id.size() <= 128
+        && data.userId is string && data.userId.size() <= 128
+        && data.doctorId is string && data.doctorId.size() <= 64
+        && data.doctorName is string && data.doctorName.size() <= 100
+        && data.doctorRole is string && data.doctorRole.size() <= 150
+        && data.doctorImage is string && data.doctorImage.size() <= 500
+        && data.createdAt is timestamp;
+    }
+
+    // MATCH BLOCKS
+    
+    // User Profile Document
+    match /users/{userId} {
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin();
+      allow create: if isOwner(userId) 
+        && isValidId(userId)
+        && isValidUser(incoming())
+        && incoming().userId == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+        
+      allow update: if isOwner(userId)
+        && isValidUser(incoming())
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time;
+        
+      // Nested collections cascading
+      match /appointments/{appointmentId} {
+        allow get: if isOwner(userId) || isAdmin();
+        allow list: if isOwner(userId) || isAdmin(); // Query Enforcer (strictly bounded to authenticated userId parent OR isAdmin)
+        
+        allow create: if (isOwner(userId)
+          && isValidId(appointmentId)
+          && isValidAppointment(incoming())
+          && incoming().id == appointmentId
+          && incoming().userId == request.auth.uid
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time)
+          || (isAdmin()
+          && isValidId(appointmentId)
+          && isValidAppointment(incoming())
+          && incoming().id == appointmentId
+          && incoming().userId == userId
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time);
+          
+        allow update: if (isOwner(userId)
+          && isValidAppointment(incoming())
+          && incoming().id == existing().id
+          && incoming().userId == existing().userId
+          && incoming().doctorId == existing().doctorId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          // Guard: No updates allowed if terminal state is Completed
+          && existing().status != 'Completed'
+          // Guard Action-based update limits key modifications
+          && (
+            // Action 1: Status cancel
+            (incoming().status == 'Cancelled' && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']))
+            ||
+            // Action 2: Patient rescheduling / details update
+            (incoming().diff(existing()).affectedKeys().hasAny(['date', 'timeSlot', 'patientName', 'patientEmail', 'patientPhone', 'symptoms', 'updatedAt']) 
+             && !incoming().diff(existing()).affectedKeys().hasAny(['status']))
+          ))
+          || (isAdmin()
+          && isValidAppointment(incoming())
+          && incoming().id == existing().id
+          && incoming().userId == existing().userId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time);
+          
+        allow delete: if isOwner(userId) || isAdmin();
+      }
+      
+      match /lookings/{lookingId} {
+        allow get: if isOwner(userId) || isAdmin();
+        allow list: if isOwner(userId) || isAdmin();
+        
+        allow create: if isOwner(userId)
+          && isValidId(lookingId)
+          && isValidLooking(incoming())
+          && incoming().id == lookingId
+          && incoming().userId == request.auth.uid
+          && incoming().createdAt == request.time;
+          
+        allow delete: if isOwner(userId) || isAdmin();
+      }
+    }
+
+    // Collection Group rules for admin query capabilities
+    match /{path=**}/appointments/{appointmentId} {
+      allow read, write: if isAdmin();
+    }
+  }
+}
